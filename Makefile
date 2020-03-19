@@ -15,8 +15,20 @@ run:
 docker-build:
 	docker-compose -f etc/docker-compose.yml build
 
-docker-up: docker-build
-	docker-compose -f etc/docker-compose.yml up
+docker-up:
+	make docker-build
+	docker-compose -f etc/docker-compose.yml up -d
 
-deploy:
-	docker save -o /tmp/sophos.bin sophos
+docker-down:
+	docker-compose -f etc/docker-compose.yml down
+
+deploy-up:
+	rsync --progress --inplace -r ./ root@ldlework.com:/root/sophos/
+	ssh -t root@ldlework.com "cd sophos && make docker-up"
+
+deploy-down:
+	ssh -t root@ldlework.com "cd sophos && make docker-down"
+
+deploy-restart:
+	make deploy-down
+	make deploy-up
