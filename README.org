@@ -21,6 +21,7 @@ Sophos requires a number of environment variables to be set:
 | SOPHOS_HOST           | sophos-host           | irc.freenode.net | the ircd to connect to                    |
 | SOPHOS_PORT           | sophos-port           | 7000             | the ircd port to user                     |
 | SOPHOS_SSL            | sophos-ssl            | t                | set to 'nil' to disable                   |
+| SOPHOS_SASL           | sophos-sasl           | t                | set to 'nil' to disable                   |
 | SOPHOS_NICKNAME       | sophos-nickname       | sophos           | nickname for the bot                      |
 | SOPHOS_PASSWORD       | sophos-password       |                  | password for nickserv                     |
 | SOPHOS_ADMINS         | sophos-admins         |                  | csv list of admin nicknames               |

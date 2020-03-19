@@ -52,6 +52,12 @@
     "nickserv password")
 #+end_src
 
+** sasl
+#+begin_src emacs-lisp
+  (defvar sophos-sasl nil
+    "whether to use sasl")
+#+end_src
+
 ** default-prefix
 #+begin_src emacs-lisp
   (defvar sophos-cmd-prefix ",")

@@ -37,6 +37,10 @@
 
     (setq sophos-ssl
           (sophos-config--env "SOPHOS_SSL"
+                              :default t))
+
+    (setq sophos-sasl
+          (sophos-config--env "SOPHOS_SASL"
                 :default t))
 
     (setq sophos-password

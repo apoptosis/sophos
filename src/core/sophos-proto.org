@@ -52,6 +52,7 @@ Supported irc commands:
 #+begin_src emacs-lisp
   (defun sophos-proto--send (&rest parts)
     (let ((msg (apply 'sophos-proto--format parts)))
+      (message "==>: %s" msg)
       (process-send-string "sophos" msg)))
 #+end_src
 
@@ -104,6 +105,30 @@ any plugin that wants to handle it.
 #+end_src
 
 ** handlers
+*** caps
+#+begin_src emacs-lisp
+  (defun sophos-proto--handle-caps (src dst msg)
+    (sophos-proto--send "AUTHENTICATE PLAIN"))
+#+end_src
+
+*** authenticate
+#+begin_src emacs-lisp
+  (defun sophos-proto--handle-authenticate ()
+    (sophos-proto--send "AUTHENTICATE" (base64-encode-string (format "%s\0%s\0%s" sophos-nickname sophos-nickname sophos-password))))
+#+end_src
+
+*** authenticated
+#+begin_src emacs-lisp
+  (defun sophos-proto--handle-authenticated (src dst msg)
+    (sophos-proto--send "CAP END"))
+#+end_src
+
+*** motd-finished
+#+begin_src emacs-lisp
+  (defun sophos-proto--handle-motd-finished (src dst msg)
+    (sophos-channels-join-all))
+#+end_src
+
 *** join
 #+begin_src emacs-lisp
   (defun sophos-proto--handle-join (who where)
@@ -139,7 +164,7 @@ any plugin that wants to handle it.
            (notice '("notice"))
            (content `(,msg "khaki")))
       (sophos-log "proto" format notice src dst content)
-      (when (s-contains? "now identified" msg)
+      (when (and (not sophos-sasl) (s-contains? "now identified" msg))
         (sophos-channels-join-all))
       (sophos-plugins--process-event "notice" dst origin msg)))
 #+end_src
@@ -173,19 +198,34 @@ any plugin that wants to handle it.
   (defun sophos-proto--start (process)
     (with-timeout
         (30 (message "connection timeout!"))
-      (sophos-proto--send "PASS" (format "%s:%s" sophos-nickname sophos-password))
-      (sophos-proto--nick sophos-nickname)
-      (sophos-proto--user sophos-nickname)
-      (sophos-proto--identify)))
+      (if sophos-sasl
+          (progn
+            (sophos-proto--send "CAP REQ :sasl")
+            (sophos-proto--nick sophos-nickname)
+            (sophos-proto--user sophos-nickname))
+        (sophos-proto--send "PASS" (format "%s:%s" sophos-nickname sophos-password))
+        (sophos-proto--nick sophos-nickname)
+        (sophos-proto--user sophos-nickname))))
 #+end_src
 
 *** process
 #+begin_src emacs-lisp
   (defun sophos-proto--process (msg)
+    (message "<==:%s" msg)
     (when msg
       (acond
+       ((s-match "^\\(:[^ ]+?\\) CAP \\(.+?\\) :\\(.+\\)$" msg)
+        (apply 'sophos-proto--handle-caps (cdr it)))
+       ((s-match "^AUTHENTICATE" msg)
+        (apply 'sophos-proto--handle-authenticate (cdr it)))
+       ((s-match "^\\(:[^ ]+?\\) 903 \\(.+?\\) :\\(.+\\)$" msg)
+        (apply 'sophos-proto--handle-authenticated (cdr it)))
        ((s-match "^\\(:[^ ]+?\\) NOTICE \\(.+?\\) :\\(.+\\)$" msg)
         (apply 'sophos-proto--handle-notice (cdr it)))
+       ((s-match "^\\(:[^ ]+?\\) 376 \\(.+?\\) :\\(.+\\)$" msg)
+        (apply 'sophos-proto--handle-motd-finished (cdr it)))
+       ((s-match ":End of /MOTD" msg)
+        (apply 'sophos-proto--handle-motd-finished '(nil nil nil)))
        ((s-match "^\\(:.+?\\) \\([0-9]\\{3\\}\\) \\(.+?\\) \\(.+\\)$" msg)
         (apply 'sophos-proto--handle-motd (cdr it)))
        ((s-match "^\\(:[^ ]+?\\) PRIVMSG \\(.+?\\) :\\(.+\\)$" msg)
