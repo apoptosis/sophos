@@ -1,0 +1,102 @@
+#+title: sophos-channels.el
+
+* package prologue
+#+begin_src emacs-lisp
+  ;;; -*- lexical-binding: t -*-
+  ;;; sophos-channels.el
+  ;; Copyright (C) 2018 Dustin Lacewell
+#+end_src
+
+* private
+** boilerplate
+*** valid-p
+#+begin_src emacs-lisp
+  (defun sophos-channels--valid-p (target)
+    (if (string-match "^#" target) t nil))
+#+end_src
+
+*** check
+#+begin_src emacs-lisp
+  (defun sophos-channels--check (string)
+    "Return t if STRING is a valid channel name"
+    (if (sophos-channels--valid-p string) t
+      (let ((msg "[%s] Invalid channel name: %s")))
+      (sophos-log "irc" msg '("channel-check") string) nil))
+#+end_src
+
+*** filter
+#+begin_src emacs-lisp
+  (defun sophos-channels--filter (channels)
+    "Filter CHANNELS to only contain valid channel names"
+    (interactive)
+    (cl-loop for channel in channels
+             if (sophos-channels--check channel)
+             collect channel))
+#+end_src
+
+** api
+*** add
+#+begin_src emacs-lisp
+  (defun sophos-channels--add (&rest channels)
+    "Record each channel in CHANNELS"
+    (let ((channels (sophos-channels--filter channels)))
+      (apply 'eredis-sadd "sophos.channels" channels)
+      (sophos-log "irc" "[%s] Added %s" '("channels") (s-join ", " channels))))
+#+end_src
+
+*** rem
+#+begin_src emacs-lisp
+  (defun sophos-channels--rem (&rest channels)
+    "Forget each channel in CHANNELS"
+    (let ((channels (sophos-channels--filter channels)))
+      (apply 'eredis-srem "sophos.channels" channels)
+      (sophos-log "irc" "[%s] Removed %s" '("channels") (s-join ", " channels))))
+#+end_src
+
+* public
+** channels
+#+begin_src emacs-lisp
+  (defun sophos-channels ()
+    (eredis-smembers "sophos.channels"))
+#+end_src
+
+** part
+#+begin_src emacs-lisp
+  (defun sophos-channels-part (channel)
+    (interactive `(,(completing-read "channel: " (sophos-channels))))
+    (when (sophos-channels--check channel)
+      (unless (-contains? (sophos-channels) channel)
+        (sophos-log "irc" "[%s] Wasn't in %s."
+                    '("part") `(,channel "gray")))
+      (sophos-channels--rem channel)
+      (sophos-proto--send "PART" channel)))
+#+end_src
+
+** join
+#+begin_src emacs-lisp
+  (defun sophos-channels-join (channel &optional key)
+    (interactive `(,(read-string "channel: ")
+                   ,(read-string "password: ")))
+    (when (sophos-channels--check channel)
+      (when (-contains? (sophos-channels) channel)
+        (sophos-log "irc" "[%s] Channel %s already joined."
+                    '("join") `(,channel "gray")))
+      (sophos-channels--add channel)
+      (sophos-proto--send "JOIN" channel key)))
+#+end_src
+
+** join-all
+#+begin_src emacs-lisp
+  (defun sophos-channels-join-all ()
+    "join irc channels."
+    (interactive)
+    (cl-loop for (channel . key) in sophos-channels
+             do (sophos-proto--send "JOIN" channel key)))
+#+end_src
+
+* package epilogue
+#+begin_src emacs-lisp
+  (provide 'sophos-channels)
+  ;;; sophos-channels.el ends here
+#+end_src
+

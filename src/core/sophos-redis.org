@@ -1,0 +1,77 @@
+#+title: sophos-redis.el
+
+* package prologue
+#+begin_src emacs-lisp
+  ;;; -*- lexical-binding: t -*-
+  ;;; sophos-redis.el
+  ;; Copyright (C) 2018 Dustin Lacewell
+#+end_src
+
+* settings
+** host
+#+begin_src emacs-lisp
+  (defvar sophos-redis-host nil)
+#+end_src
+
+** port
+#+begin_src emacs-lisp
+  (defvar sophos-redis-port 6379)
+#+end_src
+
+** password
+#+begin_src emacs-lisp
+  (defvar sophos-redis-password nil)
+#+end_src
+
+* api
+** connect
+#+begin_src emacs-lisp
+  (defun sophos-redis-connect ()
+    "start redis connection"
+    (eredis-hai sophos-redis-host sophos-redis-port)
+    (eredis-auth sophos-redis-password)
+    (sophos-log "redis" "Connected."))
+#+end_src
+
+** disconnect
+#+begin_src emacs-lisp
+  (defun sophos-redis-disconnect ()
+    "end redis connection"
+    (eredis-kthxbye)
+    (sophos-log "redis" "Disconnected."))
+#+end_src
+
+** set?
+#+begin_src emacs-lisp
+  (defun sophos-redis-set? (key default)
+    (unless (eredis-exists key)
+      (eredis-set key default)))
+#+end_src
+
+** push?
+#+begin_src emacs-lisp
+  (defun sophos-redis-push? (key &rest defaults)
+    (unless (eredis-exists key)
+      (apply 'eredis-rpush key defaults)))
+#+end_src
+
+** add?
+#+begin_src emacs-lisp
+  (defun sophos-redis-add? (key &rest defaults)
+    (unless (eredis-exists key)
+      (apply 'eredis-sadd key defaults)))
+#+end_src
+
+** hset?
+#+begin_src emacs-lisp
+  (defun sophos-redis-hset? (key &rest defaults)
+    (unless (eredis-exists key)
+      (apply 'eredis-hmset key defaults)))
+#+end_src
+
+* package epilogue
+#+begin_src emacs-lisp
+  (provide 'sophos-redis)
+  ;;; sophos-redis.el ends here
+#+end_src
+

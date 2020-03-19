@@ -1,0 +1,103 @@
+#+title: sophos-gnosis.el
+
+* package prologue
+#+begin_src emacs-lisp
+  ;;; -*- lexical-binding: t -*-
+  ;;; sophos-gnosis.el
+  ;; Copyright (C) 2018 Dustin Lacewell
+
+  ;; Author: Dustin Lacewell <dlacewell@gmail.com>
+  ;; Version: 0.1
+  ;; Package-Requires: ((emacs "24") (dash "0") (eredis "0"))
+  ;; Keywords: sophos irc
+  ;; URL: http://github.com/apoptosis/sophos
+
+  ;;; Code:
+  (require 'cl-lib)
+  (require 'dash)
+  (require 'eredis)
+#+end_src
+
+* boilerplate
+** full-key
+#+begin_src emacs-lisp
+  (defun sophos-gnosis--full-key (key)
+    (format "gnosis#defs.%s" key))
+#+end_src
+
+* commands
+** define
+#+begin_src emacs-lisp
+  (defclass sophos-gnosis-define-cmd (sophos-command)
+    ((name :initform "define")
+     (prefix :initform 'sophos-cmd-prefix)
+     (matcher :initform "\\([[:alnum:]#@_\\/\\-]+\\\) is \\(.*\\)")
+     (description :initform "Define a keyword")
+     (help :initform "KEYWORD is DEFINITION")))
+
+  (cl-defmethod run ((self sophos-gnosis-define-cmd) ctx who key val)
+    (let* ((full-key (sophos-gnosis--full-key key))
+           (old-value (eredis-get full-key)))
+      (eredis-set full-key val)
+      (sophos-log "gnosis"  "%s set %s <- %s" (car who) key val)
+      (sophos-proto-msg ctx (format "%s: Ok, %s is \"%s\"" (car who) key val))
+      (--when-let old-value
+        (sophos-proto-msg ctx (format "(it was \"%s\")" it)))
+      t))
+#+end_src
+
+** query
+#+begin_src emacs-lisp
+    (defclass sophos-gnosis-query-cmd (sophos-command)
+      ((name :initform "query")
+       (prefix :initform nil)
+       (matcher :initform "\\([[:alnum:]#@_\\/\\-]+\\\)\\?")
+       (description :initform "Query the definition of a keyword")
+       (help :initform "KEYWORD?")))
+
+    (cl-defmethod run ((self sophos-gnosis-query-cmd) ctx who key)
+      (sophos-log "gnosis" "[Q] %s ? %s" (car who) key)
+      (-if-let* ((full-key (sophos-gnosis--full-key key))
+                 (val (eredis-get full-key)))
+          (progn
+            (sophos-log "gnosis" "[A] %s is %s" who key)
+            (sophos-proto-msg ctx (format "%s is %s" key val))
+            t)
+        (sophos-log "gnosis" "[A] %s" who)))
+#+end_src
+
+** forget
+#+begin_src emacs-lisp
+  (defclass sophos-gnosis-forget-cmd (sophos-command)
+    ((name :initform "forget")
+     (prefix :initform 'sophos-cmd-prefix)
+     (matcher :initform "forget \\([[:alnum:]#@_\\/\\-]+\\\)")
+     (description :initform "Forget the definition of a keyword")
+     (help :initform "forget KEYWORD")))
+
+  (cl-defmethod run ((self sophos-gnosis-forget-cmd) ctx who key)
+    (let ((full-key (sophos-gnosis--full-key key)))
+      (eredis-del full-key)
+      (sophos-log "gnosis" "Forgot \"%s\"" full-key)
+      (sophos-proto-msg ctx (format "What's \"%s\"? ;)" key))
+      t))
+#+end_src
+
+* class
+#+begin_src emacs-lisp
+  (defclass sophos-plugin-gnosis (sophos-plugin)
+    ((name :initform "gnosis")
+     (description :initform "A simple learn-db backed by redis.")
+     (help :initform "Replies to IRC PING requests")
+     (buffer :initform "*sophos-gnosis*")
+     (commands :initform (list (sophos-gnosis-define-cmd)
+                               (sophos-gnosis-query-cmd)
+                               (sophos-gnosis-forget-cmd)))))
+#+end_src
+
+* package epilogue
+#+begin_src emacs-lisp
+  (provide 'sophos-gnosis)
+  ;;; sophos-gnosis.el ends here
+#+end_src
+

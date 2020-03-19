@@ -1,0 +1,226 @@
+#+title: sophos-proto.el
+
+This package provides an interface for interacting with the IRC protocol, both
+sending and receiving.
+
+* package prologue
+#+begin_src emacs-lisp
+  ;;; -*- lexical-binding: t -*-
+  ;;; sophos-proto.el
+  ;; Copyright (C) 2018 Dustin Lacewell
+#+end_src
+
+* private
+** boilerplate
+*** parse-origin
+#+begin_src emacs-lisp
+  (defun sophos-proto--parse-origin (origin)
+    "get irc user's nick, name and host."
+    (let ((info '()))
+      (when (string-match "^:\\(.+?\\)!\\(.+?\\)@\\(.+\\)$" origin)
+        (push (match-string 1 origin) info)
+        (push (match-string 2 origin) info)
+        (push (match-string 3 origin) info)
+        (reverse info))))
+#+end_src
+
+*** format
+Example:
+  =PRIVMSG #channel :nick msg\r\n=
+
+Accept args like below:
+  =CMD ARG1 ARG2 ARG3 ARG4=
+
+Supported irc commands:
+  NICK nick
+  USER arg arg arg :arg
+  JOIN #chan [key]
+  PRIVMSG #chan|user :msg
+  PART #chan [reason]
+  QUIT [reason]
+  PONG msg
+  PING msg
+
+#+begin_src emacs-lisp
+  (defun sophos-proto--format(&rest args)
+    "generate irc format string for sending to irc server."
+    ""
+    (concat (mapconcat (lambda (arg) arg) args " ") "\r\n"))
+#+end_src
+
+*** send
+#+begin_src emacs-lisp
+  (defun sophos-proto--send (&rest parts)
+    (let ((msg (apply 'sophos-proto--format parts)))
+      (process-send-string "sophos" msg)))
+#+end_src
+
+*** nick
+#+begin_src emacs-lisp
+  (defun sophos-proto--nick (nick)
+    (sophos-proto--send "NICK" nick))
+#+end_src
+
+*** user
+#+begin_src emacs-lisp
+  (defun sophos-proto--user (name &optional host server realname)
+    (sophos-proto--send "USER" name
+                      (or host name)
+                      (or server name)
+                      (or realname name)))
+#+end_src
+
+*** identify
+#+begin_src emacs-lisp
+  (defun sophos-proto--identify ()
+    "identify to irc server."
+    (let* ((password (sophos--get-password))
+           (message (format "identify %s" password)))
+      (sophos-proto-msg "NickServ" message)))
+#+end_src
+
+*** private-message
+This just passes the input directly to any command and plugin processing.
+
+#+begin_src emacs-lisp
+  (defun sophos-proto--private-message (sender message)
+    (unless (sophos-cmds--process sophos-nickname sender message)
+      (sophos-plugins--process-event "privmsg" sophos-nickname sender message)))
+
+#+end_src
+
+*** channel-message
+This checks for channel messages which have the configured prefix or the bot's
+nickname. It then tries to find a command that matches, otherwise passes it to
+any plugin that wants to handle it.
+
+#+begin_src emacs-lisp
+  (defun sophos-proto--channel-message (channel sender message)
+    (--when-let (or
+             (s-match (concat "^" sophos-nickname sophos-highlight-separator-regexp "\\(.*\\)") message)
+             (s-match (concat "^" sophos-cmd-prefix "\\(.*\\)") message))
+      (unless (sophos-cmds--process channel sender (car it))
+        (sophos-plugins--process-event "chanmsg" sender channel (car it)))))
+#+end_src
+
+** handlers
+*** join
+#+begin_src emacs-lisp
+  (defun sophos-proto--handle-join (who where)
+    (-let (((origin &as nick user host) (sophos-proto--parse-origin who)))
+      (when (s-equals? sophos-nickname nick)
+        (sophos-channels--add where))
+      (sophos-plugins--process-event "join" where origin)))
+#+end_src
+
+*** part
+#+begin_src emacs-lisp
+  (defun sophos-proto--handle-part (who where)
+    (-let (((origin &as nick user host) (sophos-proto--parse-origin who)))
+      (when (s-equals? nick who)
+        (sophos-channels--rem where))
+      (sophos-plugins--process-event "part" where origin)))
+#+end_src
+
+*** ping
+#+begin_src emacs-lisp
+  (defun sophos-proto--handle-ping (sender)
+    (let ((pong '("pong")))
+      (sophos-log "proto" "[%s] -> %s" '("pong") sender)
+      (sophos-proto--send "PONG" sender)))
+#+end_src
+
+*** notice
+#+begin_src emacs-lisp
+  (defun sophos-proto--handle-notice (src dst msg)
+    (let* ((origin (sophos-proto--parse-origin src))
+           (event (list origin dst msg))
+           (format "[%s] %s -> %s : %s")
+           (notice '("notice"))
+           (content `(,msg "khaki")))
+      (sophos-log "proto" format notice src dst content)
+      (when (s-contains? "now identified" msg)
+        (sophos-channels-join-all))
+      (sophos-plugins--process-event "notice" dst origin msg)))
+#+end_src
+
+*** privmsg
+#+begin_src emacs-lisp
+  (defun sophos-proto--handle-privmsg (src dst msg)
+    (unless (string-equal src sophos-nickname)
+      (let* ((format "[%s] %s -> %s : %s")
+             (notice '("privmsg"))
+             (content `(,msg "dim gray")))
+        (sophos-log "proto" format notice src dst content)
+        (let ((origin (sophos-proto--parse-origin src)))
+          (if (string-equal dst sophos-nickname)
+              (sophos-proto--private-message origin msg)
+            (sophos-proto--channel-message dst origin msg))))))
+#+end_src
+
+*** motd
+#+begin_src emacs-lisp
+  (defun sophos-proto--handle-motd (src num dst msg)
+    (let ((format "[%s] %s -> %s")
+          (motd `(,num))
+          (msg (list msg "dim gray")))
+      (sophos-log "proto" format motd src msg)))
+#+end_src
+
+** api
+*** start
+#+begin_src emacs-lisp
+  (defun sophos-proto--start (process)
+    (with-timeout
+        (30 (message "connection timeout!"))
+      (sophos-proto--send "PASS" (format "%s:%s" sophos-nickname sophos-password))
+      (sophos-proto--nick sophos-nickname)
+      (sophos-proto--user sophos-nickname)
+      (sophos-proto--identify)))
+#+end_src
+
+*** process
+#+begin_src emacs-lisp
+  (defun sophos-proto--process (msg)
+    (when msg
+      (acond
+       ((s-match "^\\(:[^ ]+?\\) NOTICE \\(.+?\\) :\\(.+\\)$" msg)
+        (apply 'sophos-proto--handle-notice (cdr it)))
+       ((s-match "^\\(:.+?\\) \\([0-9]\\{3\\}\\) \\(.+?\\) \\(.+\\)$" msg)
+        (apply 'sophos-proto--handle-motd (cdr it)))
+       ((s-match "^\\(:[^ ]+?\\) PRIVMSG \\(.+?\\) :\\(.+\\)$" msg)
+        (apply 'sophos-proto--handle-privmsg (cdr it)))
+       ((s-match "^\\(:[^ ]+?\\) PART \\(.+?\\) \\(.+\\)\\|\\(:[^ ]+?\\) PART \\(.+\\)$" msg)
+        (apply 'sophos-proto--handle-part (nthcdr 4 it)))
+       ((s-match "^\\(:[^ ]+?\\) JOIN \\(.+\\)$" msg)
+        (apply 'sophos-proto--handle-join (cdr it)))
+       ;; ((s-match "^\\(:[^ ]+?\\) QUIT \\(.+\\)$" msg)
+       ;;  (apply 'sophos-proto--handle-quit (cdr it)))
+       ((s-match "^\\(:[^ ]+?\\) PONG \\(.+?\\) \\(.+\\)$" msg)
+        (apply 'sophos-proto--handle-pong (cdr it)))
+       ;; ((s-match "^ERROR " msg)
+       ;;  (apply 'sophos-proto--handle-error (cdr it)))
+       ((s-match "^PING \\(.+\\)$" msg)
+        (apply 'sophos-proto--handle-ping (cdr it)))
+       (t (sophos-log "proto" "[%s] %s" '("raw") msg)))))
+#+end_src
+
+* public
+** msg
+#+begin_src emacs-lisp
+  (defun sophos-proto-msg (who msg)
+    (sophos-proto--send "PRIVMSG" who (concat ":" msg)))
+#+end_src
+
+** notice
+#+begin_src emacs-lisp
+  (defun sophos-proto-notice (who message)
+    (sophos-proto--send "NOTICE" who (concat ":" message)))
+#+end_src
+
+* package epilogue
+#+begin_src emacs-lisp
+  (provide 'sophos-proto)
+  ;;; sophos-proto.el ends here
+#+end_src
+

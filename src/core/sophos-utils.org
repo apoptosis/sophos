@@ -1,0 +1,31 @@
+#+title: sophos-utils.el
+
+* package prologue
+#+begin_src emacs-lisp
+  ;;; -*- lexical-binding: t -*-
+  ;;; sophos-utils.el
+  ;; Copyright (C) 2018 Dustin Lacewell
+#+end_src
+
+* get-string
+#+begin_src emacs-lisp
+  (defun sophos--get-string (&optional prompt-string)
+    "get user input passwd for nick registering."
+    (let ((prompt (or prompt-string "> ")))
+      (read-string prompt nil "")))
+#+end_src
+
+* get-password
+#+begin_src emacs-lisp
+  (defun sophos--get-password ()
+    "get user input passwd for nick registering."
+    (let ((prompt "Password:"))
+      (or sophos-password (read-passwd prompt nil ""))))
+#+end_src
+
+* package epilogue
+#+begin_src emacs-lisp
+  (provide 'sophos-utils)
+  ;;; sophos-utils.el ends here
+#+end_src
+

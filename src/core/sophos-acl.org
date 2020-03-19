@@ -1,0 +1,62 @@
+#+title: sophos-acl.el
+
+* package prologue
+#+begin_src emacs-lisp
+  ;;; -*- lexical-binding: t -*-
+  ;;; sophos-acl.el
+  ;; Copyright (C) 2018 Dustin Lacewell
+#+end_src
+
+* private
+** api
+*** admin-p
+#+begin_src emacs-lisp
+  (defun sophos-acl--operator-p (target)
+    (eredis-sismember target))
+#+end_src
+
+*** add-admin
+#+begin_src emacs-lisp
+  (defun sophos-acl--add-admin (&rest users)
+    "Record each in USERS as an admin"
+    (apply 'eredis-sadd "sophos.admins" users)
+    (sophos-log "irc" "[%s] Added %s" '("acl") (s-join ", " users)))
+#+end_src
+
+*** remove-admin
+#+begin_src emacs-lisp
+  (defun sophos-acl--remove-admin (&rest users)
+    "Remove each in USERS from the list of admins"
+    (apply 'eredis-srem "sophos.admins" users)
+    (sophos-log "irc" "[%s] Removed %s" '("acl") (s-join ", " users)))
+#+end_src
+
+* public
+** operators
+#+begin_src emacs-lisp
+  (defun sophos-acl-admins ()
+    (eredis-smembers "sophos.admins"))
+#+end_src
+
+** add-admin
+#+begin_src emacs-lisp
+  (defun sophos-acl-add-admin (user)
+    (interactive `(,(read-string "who: ")))
+    (sophos-acl--add-admin user))
+#+end_src
+
+** remove-admin
+#+begin_src emacs-lisp
+  (defun sophos-acl-remove-admin (user)
+    (interactive `(,(completing-read "who: " (sophos-acl-admins))))
+    (if (not (sophos-acl--admin-p user))
+        (sophos-log "irc" "[%s] User %s wasn't an admin." '("acl") `(,user "gray"))
+      (sophos-acl--remove-admin user)))
+#+end_src
+
+* package epilogue
+#+begin_src emacs-lisp
+  (provide 'sophos-acl)
+  ;;; sophos-acl.el ends here
+#+end_src
+

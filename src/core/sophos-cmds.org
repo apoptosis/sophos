@@ -1,0 +1,101 @@
+#+title: sophos-cmds.el
+
+* package prologue
+#+begin_src emacs-lisp
+  ;;; -*- lexical-binding: t -*-
+  ;;; sophos-cmds.el
+  ;; Copyright (C) 2018 Dustin Lacewell
+#+end_src
+
+* class
+#+begin_src emacs-lisp
+  (defclass sophos-command ()
+    ((name
+      :initarg name
+      :initform nil
+      :custom string)
+     (prefix
+      :initarg :prefix
+      :initform nil
+      :custom (choice (null string variable)))
+     (matcher
+      :initarg :matcher
+      :initform nil
+      :custom (choice (regexp symbol sexp)))
+     (contexts
+      :initarg :contexts
+      :initform nil
+      :custom (choice (null symbol)))
+     (description
+      :initarg :description
+      :initform nil
+      :custom (choice (string null)))
+     (help
+      :initarg :help
+      :initform nil
+      :custom (choice (string null)))))
+
+#+end_src
+
+** methods
+*** run
+#+begin_src emacs-lisp
+  (defmethod run ((self sophos-command) ctx who msg)
+    (message "Unimplemented command: %s" (oref self name)))
+#+end_src
+
+* private
+** boilerplate
+*** plugin-commands
+#+begin_src emacs-lisp
+  (defun sophos-cmds--plugin-commands (name)
+    (--when-let (sophos-plugins--get-plugin-by-name name)
+      (oref it commands)))
+#+end_src
+
+*** plugin-command
+#+begin_src emacs-lisp
+  (defun sophos-cmds--plugin-command (plugin-name cmd-name)
+    (--when-let (sophos-cmds--plugin-commands plugin-name)
+      (-find (lambda (cmd) (s-equals? cmd-name (oref cmd name))))))
+#+end_src
+
+*** check-prefix
+#+begin_src emacs-lisp
+  (defun sophos-cmds--check-prefix (prefix line)
+    (--when-let (s-match (concat "^" prefix "\\(.*\\)") line)
+      (car it)))
+#+end_src
+
+*** check-matcher
+#+begin_src emacs-lisp
+  (defun sophos-cmds--check-matcher (cmd ctx who line)
+    (--when-let (and line (s-match (oref cmd matcher) line))
+      (apply 'run cmd ctx who (cdr it))))
+#+end_src
+
+*** check-plugin
+#+begin_src emacs-lisp
+  (defun sophos-cmds--check-plugin (plugin ctx who line)
+    (cl-loop for cmd in (oref plugin commands)
+             for result = (sophos-cmds--check-matcher cmd ctx who line)
+             until result
+             finally return result))
+#+end_src
+
+*** process
+#+begin_src emacs-lisp
+  (defun sophos-cmds--process (ctx who line)
+    (cl-loop for plugin in sophos--plugins
+             for context = (if (string-equal sophos-nickname ctx) (car who) ctx)
+             for result = (sophos-cmds--check-plugin plugin context who line)
+             if result
+             return result))
+#+end_src
+
+* package epilogue
+#+begin_src emacs-lisp
+  (provide 'sophos-cmds)
+  ;;; sophos-cmds.el ends here
+#+end_src
+

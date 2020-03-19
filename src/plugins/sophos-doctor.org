@@ -1,0 +1,94 @@
+#+title: sophos-doctor.el
+
+* package prologue
+#+begin_src emacs-lisp
+  ;;; -*- lexical-binding: t -*-
+  ;;; sophos-doctor.el
+  ;; Copyright (C) 2018 Dustin Lacewell
+
+  ;; Author: Dustin Lacewell <dlacewell@gmail.com>
+  ;; Version: 0.1
+  ;; Package-Requires: ((emacs "26") (dash "0") (s "0"))
+  ;; Keywords: sophos irc
+  ;; URL: http://github.com/apoptosis/sophos
+
+  ;;; Code:
+  (require 'cl-lib)
+  (require 'dash)
+  (require 's)
+#+end_src
+
+* boilerplate
+** consult
+#+begin_src emacs-lisp
+  (defun sophos--doctor-consult (msg)
+    (unless (get-buffer "*doctor*") (doctor))
+    (with-current-buffer "*doctor*"
+      (insert msg)
+      (let ((beg (point)))
+        (insert "\n\n")
+        (doctor-read-print)
+        (s-trim (buffer-substring beg (point-max))))))
+#+end_src
+
+** log
+#+begin_src emacs-lisp
+  (defun sophos-doctor--log (name nick question answer)
+    (sophos-log name "[Q] %s: %s" nick question)
+    (sophos-log name "[A] %s" answer))
+#+end_src
+
+* commands
+** talk
+#+begin_src emacs-lisp
+  (defclass sophos-doctor-talk-cmd (sophos-command)
+    ((name :initform "talk")
+     (prefix :initform 'sophos-cmd-prefix)
+     (matcher :initform "\\(.*\\)")
+     (description :initform "Talk to Sophos")
+     (help :initform "ANYTEXT")))
+
+  (cl-defmethod run ((self sophos-doctor-talk-cmd) ctx who question)
+    (sophos-log "doctor" "[T] %s:  %s" (car who) question)
+    (-let* ((answer (sophos--doctor-consult question)))
+      (sophos-doctor--log (oref self name) who question answer)
+      (sophos-proto-msg ctx (format "%s: %s" (car who) answer))))
+#+end_src
+
+* class
+#+begin_src emacs-lisp
+  (defclass sophos-plugin-doctor (sophos-plugin)
+    ((name :initform "doctor")
+     (description :initform "Emacs Therapist for Sophos")
+     (help :initform "Show me where it hurts")
+     (buffer :initform "*sophos-doctor*")
+     (commands :initform (list (sophos-doctor-talk-cmd)))))
+#+end_src
+
+** on-chanmsg
+#+begin_src emacs-lisp
+  (defmethod on-chanmsg ((self sophos-plugin-doctor) origin chan msg)
+    (awhen (s-match (format "^%s[,: ]\\(.*\\)" sophos-nickname) msg)
+           (-let* (((nick name host) origin)
+                   (question (cadr it))
+                   (answer (sophos--doctor-consult question)))
+             (sophos-doctor--log (oref self name) nick question answer)
+             (sophos-proto-msg chan (format "%s: %s" nick answer))) t))
+#+end_src
+
+** on-privmsg
+#+begin_src emacs-lisp
+  (defmethod on-privmsg ((self sophos-plugin-doctor) origin msg)
+    (awhen (and (sophos--doctor-consult msg))
+           (-let (((nick name host) origin))
+             (when (not (s-equals? nick "freenode-connect"))
+               (sophos-doctor--log (oref self name) nick question answer)
+               (sophos-proto-msg nick it))) t))
+#+end_src
+
+* package epilogue
+#+begin_src emacs-lisp
+  (provide 'sophos-doctor)
+  ;;; sophos-doctor.el ends here
+#+end_src
+

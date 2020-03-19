@@ -1,0 +1,195 @@
+#+title: sophos-log.el
+
+* package prologue
+#+begin_src emacs-lisp
+  ;;; -*- lexical-binding: t -*-
+  ;;; sophos-log.el
+  ;; Copyright (C) 2018 Dustin Lacewell
+#+end_src
+
+* state
+** systems
+#+begin_src emacs-lisp
+  (setq sophos--log-systems nil)
+#+end_src
+
+** filters
+#+begin_src emacs-lisp
+  (setq sophos--log-filters nil)
+#+end_src
+
+* boilerplate
+** point-is-max
+#+begin_src emacs-lisp
+  (defun sophos--log-point-is-max (window)
+    (= (window-point window) (point-max)))
+#+end_src
+
+** scroll-windows
+#+begin_src emacs-lisp
+  (defun sophos--log-scroll-windows (buffer)
+    (let ((windows (--> buffer
+                          (get-buffer-window-list it t t)
+                          (-filter 'sophos--log-point-is-max it))))
+        (dolist (window windows)
+          (set-window-point window (point-max)))))
+#+end_src
+
+** make-face
+#+begin_src emacs-lisp
+  (defun sophos--log-make-face (name color matcher)
+    (let* ((doc (format "%s sophos log face" name))
+           (name (format "sophos-log-%s-face" name))
+           (symbol (intern name)))
+      (font-lock-add-keywords 'sophos-log-mode `((,matcher . ',symbol)))
+      (eval `(defface ,symbol '((t :foreground ,color)) ,doc))))
+#+end_src
+
+** make-system-face
+#+begin_src emacs-lisp
+  (defun sophos--log-make-system-face (name)
+    (let* ((color (sophos-log-color name))
+           (matcher (format "\\<%s\\>" name)))
+      (sophos--log-make-face name color matcher)))
+#+end_src
+
+** setup-face
+#+begin_src emacs-lisp
+  (defun sophos--log-setup-face (name)
+    (unless (-contains? sophos--log-systems name)
+      (sophos--log-make-system-face name)
+      (push name sophos--log-systems)
+      (sophos-log-mode)
+      (font-lock-ensure)))
+#+end_src
+
+** hide-lines
+#+begin_src emacs-lisp
+  (defun sophos--log-hide-lines ()
+    (with-current-buffer (get-buffer-create "*sophos*")
+      (hide-lines-show-all)
+      (when sophos--log-filters
+        (hide-lines-not-matching (s-join "\\|" sophos--log-filters)))))
+#+end_src
+
+** insert
+#+begin_src emacs-lisp
+  (defun sophos--log-insert (buffer string)
+    (let (return-to-position)
+      ;; decide whether we should reset point to return-to-position
+      ;; or leave it at eob.
+      (unless (= (point) (point-max))
+        (setq return-to-position (point))
+        (goto-char (point-max)))
+      (end-of-buffer)
+      (setq buffer-read-only nil)
+      (insert string)
+      (setq buffer-read-only t)
+      (sophos--log-scroll-windows buffer)
+      (when return-to-position
+        (goto-char return-to-position))))
+#+end_src
+
+** setup-buffer
+#+begin_src emacs-lisp
+  (defun sophos--log-setup-buffer ()
+    (unless (get-buffer "*sophos*")
+      (with-current-buffer (get-buffer-create "*sophos*")
+        (sophos--log-make-face "date-time" "#555555"
+                               "\\<[[:digit:]-]+ - [[:digit:]:]+\\>")
+        (sophos-log-mode)
+        (font-lock-ensure))))
+#+end_src
+
+** resolve-arg
+#+begin_src emacs-lisp
+  (defun sophos--log-resolve-arg (arg)
+    (if (not (listp arg)) arg
+      (-let* (((arg fg bg) arg)
+              (fg (if fg fg (sophos-log-color arg)))
+              (props (list (when fg `(:foreground ,fg))
+                           (when bg `(:background ,bg)))))
+        (propertize arg 'font-lock-face props))))
+#+end_src
+
+** resolve-args
+#+begin_src emacs-lisp
+  (defun sophos--log-resolve-args (args)
+    (cl-loop for arg in args
+             collect (sophos--log-resolve-arg arg)))
+#+end_src
+
+* mode
+#+begin_src emacs-lisp
+  (define-derived-mode sophos-log-mode fundamental-mode "sophos-log"
+    "sophos-log-mode is a major mode for viewing the sophos log.
+
+    \\{sophos-log-mode-map}")
+#+end_src
+
+** keymap
+#+begin_src emacs-lisp
+  (defvar sophos-log-mode-map nil "Keymap for `my-mode-mode'")
+  (setq sophos-log-mode-map (make-sparse-keymap))
+  (define-key sophos-log-mode-map (kbd "SPC") 'sophos-log-filter)
+  (global-set-key (kbd "C-c s") (lambda () (interactive) (switch-to-buffer (get-buffer-create "*sophos*"))))
+#+end_src
+
+* api
+** color
+#+begin_src emacs-lisp
+  (defun clamp (val &optional min max)
+    (--> val
+         (if (and min (> min val)) min val)
+         (if (and max (< max val)) max val)))
+
+  (defun clamp-hsl (hsl &optional min-light max-light min-sat max-sat)
+    (-let (((h s l) hsl)
+           (l (clamp (or min-light 0.6)
+                     (or max-light 0.8)))
+           (s (clamp (or min-sat 0.6)
+                     (or max-sat 0.8))))
+      (list h s l)))
+
+  (defun sophos-log-color (name &optional min-light max-light min-sat max-sat)
+    (--> name
+         (secure-hash 'sha256 it)
+         (substring it -6)
+         (concat "#" it)
+         (color-name-to-rgb it)
+         (apply 'color-rgb-to-hsl it)
+         (clamp-hsl it min-light max-light min-sat max-sat)
+         (apply 'color-hsl-to-rgb it)
+         (apply 'color-rgb-to-hex it)))
+#+end_src
+
+** log
+#+begin_src emacs-lisp
+  (defun sophos-log (system msg &rest args)
+    (sophos--log-setup-buffer)
+    (with-current-buffer (get-buffer "*sophos*")
+      (let ((msg (apply 'format msg (sophos--log-resolve-args args))))
+        (when (not (string-equal "" msg))
+          (let* ((datetime (format-time-string "%Y-%m-%d - %H:%M:%S"))
+                 (msg (format "%s [%s]: %s\n" datetime system msg)))
+            (message msg)
+            (sophos--log-setup-face system)
+            (sophos--log-insert "*sophos*" msg)
+            (sophos--log-hide-lines))))))
+#+end_src
+
+** filter
+#+begin_src emacs-lisp
+  (defun sophos-log-filter ()
+    (interactive)
+    (setq sophos--log-filters
+          (completing-read-multiple "filter: " sophos--log-systems))
+    (sophos--log-hide-lines))
+#+end_src
+
+* package epilogue
+#+begin_src emacs-lisp
+  (provide 'sophos-log)
+  ;;; sophos-log.el ends here
+#+end_src
+

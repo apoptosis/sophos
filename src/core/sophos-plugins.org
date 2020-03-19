@@ -1,0 +1,132 @@
+#+title: sophos-plugins.el
+
+The responsibilities of this package are:
+
+- define a base class for plugins
+- handle plugin loading / unloading
+- send non-command events to plugins
+
+* package prologue
+#+begin_src emacs-lisp
+  ;;; -*- lexical-binding: t -*-
+  ;;; sophos-plugins.el
+  ;; Copyright (C) 2018 Dustin Lacewell
+#+end_src
+
+* state
+** plugins
+#+begin_src emacs-lisp
+  (defcustom sophos--plugins nil
+    "Holds all loaded plugin instances."
+    :group 'sophos
+    :type 'list)
+#+end_src
+
+* private
+** boilerplate
+*** get-plugin-by-name
+#+begin_src emacs-lisp
+  (defun sophos-plugins--get-plugin-by-name (name)
+    (cl-loop for plugin in sophos--plugins
+             if (string-equal name (oref plugin name))
+             return plugin))
+#+end_src
+
+*** try-method
+#+begin_src emacs-lisp
+  (defun sophos-plugins--try-method (instance method args)
+    (condition-case _ (apply method instance args)
+        (error nil)))
+#+end_src
+
+*** perform-event
+Plugins can define event handlers. Currently the only events used are:
+- =privmsg=: when a private message is not handled by any command
+- =chanmsg=: when a channel message is not handled by any command
+
+#+begin_src emacs-lisp
+  (defun sophos-plugins--perform-event (plugin type args)
+    (let* ((method-name (concat "on-" type))
+           (method (intern method-name)))
+      (sophos-plugins--try-method plugin method args)))
+#+end_src
+
+** api
+*** process
+Check every plugin to see if it wants to handle the event.
+
+#+begin_src emacs-lisp
+  (defun sophos-plugins--process-event (type ctx who &rest args)
+    (declare (indent defun))
+    (cl-loop for plugin in sophos--plugins
+             if (sophos-plugins--perform-event plugin type args)
+             return nil))
+#+end_src
+
+* class
+#+begin_src emacs-lisp
+  (defclass sophos-plugin ()
+    ((name
+      :initarg :name
+      :initform nil
+      :custom string)
+     (commands
+      :initarg :commands
+      :initform nil
+      :custom (choice (null (set sophos-command))))
+     (description
+      :initarg :description
+      :initform nil
+      :custom (choice (string null)))
+     (help
+      :initarg :help
+      :initform nil
+      :custom (choice (string null)))
+     (enabled
+      :initarg :enabled
+      :initform t
+      :custom boolean)))
+#+end_src
+
+** methods
+*** on-load
+#+begin_src emacs-lisp
+  (defmethod on-load ((self sophos-plugin))
+    (message "Plugin `%s` loaded." (oref self name)))
+#+end_src
+
+*** on-unload
+#+begin_src emacs-lisp
+  (defmethod on-unload ((self sophos-plugin))
+    (message "Plugin `%s` unloaded." (oref self name)))
+#+end_src
+
+* public
+** install
+#+begin_src emacs-lisp
+  (defun sophos-plugins-install (plugin)
+    (let ((plugin-name (oref plugin name)))
+      (sophos-plugins-uninstall plugin-name)
+      (push plugin sophos--plugins)
+      (sophos-log "plugins" "Plugin `%s` loaded." (propertize plugin-name 'face '(:foreground "green")))
+      (condition-case _ (on-load plugin)
+        (cl-no-applicable-method nil))))
+#+end_src
+
+** uninstall
+#+begin_src emacs-lisp
+  (defun sophos-plugins-uninstall (plugin-name)
+    (-remove (lambda (o)
+               (when (string-equal plugin-name (oref o name))
+                 (sophos-log "plugins" "Plugin `%s` unloaded." plugin-name)
+                 (condition-case _ (on-unload o)
+                   (cl-no-applicable-method nil))))
+             sophos--plugins))
+#+end_src
+
+* package epilogue
+#+begin_src emacs-lisp
+  (provide 'sophos-plugins)
+  ;;; sophos-plugins.el ends here
+#+end_src
+

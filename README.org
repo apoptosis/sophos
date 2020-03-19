@@ -1,0 +1,44 @@
+#+title: Sophos
+
+Sophos is an IRC bot implemented in Emacs-lisp. That means it runs inside
+Emacs!
+
+* Local Quickstart
+Edit =settings.env= with your IRC and Redis details.
+
+Run =make run=.
+
+* Docker Quickstart
+Edit =settings.env= with your IRC details.
+
+Run =make docker-up=.
+
+* Configuration
+
+Sophos requires a number of environment variables to be set:
+
+| Environment Variable  | Elisp Variable        | Default          | Description                               |
+| SOPHOS_HOST           | sophos-host           | irc.freenode.net | the ircd to connect to                    |
+| SOPHOS_PORT           | sophos-port           | 7000             | the ircd port to user                     |
+| SOPHOS_SSL            | sophos-ssl            | t                | set to 'nil' to disable                   |
+| SOPHOS_NICKNAME       | sophos-nickname       | sophos           | nickname for the bot                      |
+| SOPHOS_PASSWORD       | sophos-password       |                  | password for nickserv                     |
+| SOPHOS_ADMINS         | sophos-admins         |                  | csv list of admin nicknames               |
+| SOPHOS_CHANNELS       | sophos-channels       | ##sophos-bots!   | csv list of channel-name!channel-password |
+| SOPHOS_REDIS_HOST     | sophos-redis-host     | 127.0.0.1        | the redis server to use                   |
+| SOPHOS_REDIS_PORT     | sophos-redis-port     | 7000             | the port of the redis server              |
+| SOPHOS_REDIS_PASSWORD | sophos-redis-password |                  | password for the redis server             |
+
+** .env Files
+Sophos will always read in a =.env= file named =settings.env=
+
+When run from =make run= it will also load =local-settings.env=
+
+When run from Docker Compose it will load =compose-settings.env=
+
+View =settings.env= for an example of the syntax in these files.
+
+* startup.el
+Once running, Sophos will execute =startup.el=. View this file for an example of
+how to start Sophos with some plugins.
+

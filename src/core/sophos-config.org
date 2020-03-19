@@ -1,0 +1,77 @@
+#+title: sophos-config.el
+
+* package prologue
+#+begin_src emacs-lisp
+  ;;; -*- lexical-binding: t -*-
+  ;;; sophos-config.el
+  ;; Copyright (C) 2018 Dustin Lacewell
+#+end_src
+
+* settings
+** host
+#+begin_src emacs-lisp
+  (defvar sophos-redis-host nil)
+#+end_src
+
+* boilerplate
+#+begin_src emacs-lisp
+  (defmacro sophos-config--env (name &rest args)
+    (-let* (((&plist :default default :formatter formatter) args)
+            (formatter (or formatter 'it)))
+      `(--when-let (or (getenv ,name) ,default)
+         ,formatter)))
+#+end_src
+
+* api
+** load-from-environment
+#+begin_src emacs-lisp
+  (defun sophos-config-load-from-environment ()
+    "start redis connection"
+    (setq sophos-host
+          (sophos-config--env "SOPHOS_HOST"
+              :default "irc.freenode.net"))
+
+    (setq sophos-port
+          (sophos-config--env "SOPHOS_PORT"
+                :default 7000))
+
+    (setq sophos-ssl
+          (sophos-config--env "SOPHOS_SSL"
+                :default t))
+
+    (setq sophos-password
+          (sophos-config--env "SOPHOS_PASSWORD"))
+
+    (setq sophos-nickname
+          (sophos-config--env "SOPHOS_NICKNAME"
+                :default (format "sophos-%s" (random 9999))))
+
+    (setq sophos-admins
+          (sophos-config--env "SOPHOS_ADMINS"
+                :formatter (s-split "," it)))
+
+    (setq sophos-channels
+          (sophos-config--env "SOPHOS_CHANNELS"
+                :default "##sophos-bots!"
+                :formatter (mapcar
+                            (lambda (p) (apply 'cons (s-split "!" p)))
+                            (s-split "," it))))
+
+    (setq sophos-redis-host
+          (sophos-config--env "SOPHOS_REDIS_HOST"
+                :default "127.0.0.1"))
+
+    (setq sophos-redis-port
+          (sophos-config--env "SOPHOS_REDIS_PORT"
+                :default 6379))
+
+    (setq sophos-redis-password
+          (sophos-config--env "SOPHOS_REDIS_PASSWORD")))
+#+end_src
+
+* package epilogue
+#+begin_src emacs-lisp
+  (provide 'sophos-config)
+  ;;; sophos-redis.el ends here
+#+end_src
+

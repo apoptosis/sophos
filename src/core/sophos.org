@@ -1,0 +1,143 @@
+#+title: sophos.el
+
+* package prologue
+#+begin_src emacs-lisp
+  ;;; -*- lexical-binding: t -*-
+  ;;; sophos.el --- An IRC bot for the ##apoptosis community on Freenode
+  ;; Copyright (C) 2018 Dustin Lacewell
+
+  ;; Author: Dustin Lacewell <dlacewell@gmail.com>
+  ;; Version: 0.1
+  ;; Package-Requires: ((emacs "24") (anaphora "0") (dash "0") (eredis "0") (hide-lines "0") (s "0") (f "0"))
+  ;; Keywords: sophos irc
+  ;; URL: http://github.com/apoptosis/sophos
+
+  ;;; Commentary:
+
+  ;; This package implements an IRC bot originally forked from https://github.com/bokuno/momoko.el
+
+  ;;; Code:
+  (require 'cl-lib)
+  (require 'eieio)
+
+  (require 'anaphora)
+  (require 'dash)
+  (require 'eredis)
+  (require 'f)
+  (require 'hide-lines)
+  (require 's)
+
+  (require 'sophos-config)
+  (require 'sophos-utils)
+  (require 'sophos-log)
+  (require 'sophos-redis)
+  (require 'sophos-plugins)
+  (require 'sophos-acl)
+  (require 'sophos-proto)
+  (require 'sophos-cmds)
+  (require 'sophos-channels)
+
+#+end_src
+
+* settings
+** nickname
+#+begin_src emacs-lisp
+  (defvar sophos-nickname "sophos-bot"
+    "bot's nickname.")
+#+end_src
+
+** password
+#+begin_src emacs-lisp
+  (defvar sophos-password nil
+    "nickserv password")
+#+end_src
+
+** default-prefix
+#+begin_src emacs-lisp
+  (defvar sophos-cmd-prefix ",")
+#+end_src
+
+** highlight-separator-regexp
+#+begin_src emacs-lisp
+  (defcustom sophos-highlight-separator-regexp "[ :,]"
+    "A regexp representing the valid characters that can appear
+  after the bot's nickname when issuing commands in channels.")
+#+end_src
+
+* boilerplate
+** buffer
+#+begin_src emacs-lisp
+  (setq sophos--buffer nil)
+#+end_src
+
+** start
+#+begin_src emacs-lisp
+  (defun sophos--start (host port ssl-p)
+    (sophos--stop)
+    (let* ((type (if (string-equal "nil" (format "%s" ssl-p)) nil 'ssl))
+           (process (open-network-stream "sophos" nil host port :type type)))
+      (set-process-filter process 'sophos--filter)
+      (sophos-proto--start process)))
+#+end_src
+
+** stop
+#+begin_src emacs-lisp
+  (defun sophos--stop ()
+    (when (get-process "sophos")
+      (delete-process "sophos")
+      (sophos-log "core" "Process deleted")))
+#+end_src
+
+** error-handler
+#+begin_src emacs-lisp
+  (defun sophos--error-handler (process output)
+    (condition-case (sophos--filter process output)
+        ((error) (debug))))
+#+end_src
+
+** filter
+#+begin_src emacs-lisp
+  (defun sophos--filter (process output)
+    "function to parse msg received from irc server."
+    (-let* ((is-full (s-suffix? "\r\n" output))
+            ((first . items) (-remove 's-blank? (split-string output "\r\n")))
+            (first (if sophos--buffer (concat sophos-buffer first) first))
+            (last (-last-item items))
+            (items (-butlast (cdr items))))
+      ;; (unless is-full
+      ;;   (sophos-log "core" "[%s] Unfinished message: %S" '("filter") output))
+
+      ;; first
+      (sophos-proto--process (if sophos--buffer
+                                  (concat sophos--buffer first)
+                                first))
+      ;; items
+      (cl-loop for line in items
+               do (sophos-proto--process line))
+
+      ;; last
+      (if (and last is-full)
+          (sophos-proto--process last)
+        (setq sophos--cache last))))
+#+end_src
+
+* api
+** sophos
+#+begin_src emacs-lisp
+  (defun sophos (&rest plugins)
+    "start sophos-irc bot."
+    (dolist (plugin plugins)
+      (sophos-plugins-install plugin))
+    (eredis-hai sophos-redis-host sophos-redis-port)
+    (eredis-auth sophos-redis-password)
+    (sophos-log "core" "Redis connected.")
+    (sophos--start sophos-host sophos-port sophos-ssl)
+    (sophos-log "core" "IRC connected."))
+#+end_src
+
+* package epilogue
+#+begin_src emacs-lisp
+  (provide 'sophos)
+  ;;; sophos.el ends here
+#+end_src
+

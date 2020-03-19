@@ -1,0 +1,15 @@
+# docker-compose.yml
+version: '3'
+services:
+  redis:
+    image: redis
+    command: redis-server --requirepass 1F239RdgxyxC
+    expose:
+      - 6379
+  sophos:
+    build:
+      context: ../
+      dockerfile: etc/Dockerfile
+    env_file:
+      - ../settings.env
+      - ../compose-settings.env
