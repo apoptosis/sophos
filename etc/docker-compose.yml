@@ -3,9 +3,11 @@ version: '3'
 services:
   redis:
     image: redis
-    command: redis-server --requirepass 1F239RdgxyxC
+    command: redis-server --save 5 1 --requirepass 1F239RdgxyxC
     expose:
       - 6379
+    volumes:
+      - "/var/sophos-data/:/data/"
   sophos:
     image: sophos
     build:
