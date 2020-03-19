@@ -8,4 +8,4 @@ set -a
 
 set +a
 
-emacs --script ./etc/boot.el
+emacs -l ./etc/boot.el
